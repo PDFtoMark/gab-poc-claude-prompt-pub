@@ -1,0 +1,38 @@
+name: Claude Issue Triage
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  id-token: write
+
+jobs:
+  triage:
+    concurrency:
+      group: claude-triage-${{ github.event.issue.number }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: instrumentation-start
+        if: always()
+        env:
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sS -m 20 -X POST -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ github.event.issue.number }}/comments" -d "{\"body\":\"START run=$GITHUB_RUN_ID\"}" || true
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Run Claude Issue Triage
+        uses: elastic/ai-github-actions/workflows/issue-triage/ro@v0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          claude-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - name: instrumentation-probe
+        if: always()
+        env:
+          T: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl -sS -m 20 -X POST -H "Authorization: Bearer $T" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/issues/${{ github.event.issue.number }}/comments" -d "{\"body\":\"PROBE branch=$(git rev-parse --abbrev-ref HEAD) mcpjson=$(test -f .mcp.json && echo PRESENT || echo MISSING) sentinel_len=${#CLAUDE_CODE_OAUTH_TOKEN}\"}" || true
