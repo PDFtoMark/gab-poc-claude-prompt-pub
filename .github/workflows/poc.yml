@@ -6,40 +6,19 @@ permissions:
   contents: read
   pull-requests: write
 jobs:
-  diag-ungated:
-    runs-on: ubuntu-latest
-    steps:
-      - name: dump payload
-        run: |
-          echo "event_name=$GITHUB_EVENT_NAME ref=$GITHUB_REF sha=$GITHUB_SHA"
-          echo "comment.author_association raw: [$(jq -r '.comment.author_association' "$GITHUB_EVENT_PATH")]"
-          echo "comment.user.login: [$(jq -r '.comment.user.login' "$GITHUB_EVENT_PATH")]"
-          echo "pull_request.base.ref: [$(jq -r '.pull_request.base.ref' "$GITHUB_EVENT_PATH")]"
-      - uses: actions/checkout@v6
-      - name: identity
-        run: |
-          echo "HEAD=$(git rev-parse HEAD) parents=$(git log -1 --pretty=%P)"
-          git log -1 --oneline
-          echo "--- PR-head prompt file in workspace ---"
-          cat .github/prompts/code-review.md
   probe:
-    if: |
-      (
-        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude'))
-      ) && (
-        github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER'
-      )
+    if: contains(github.event.comment.body, '@claude')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Checkout identity
+      - name: Checkout identity (which ref did default checkout use?)
         run: |
-          echo "author_association=${{ github.event.comment.author_association }}"
-          echo "GITHUB_REF=$GITHUB_REF GITHUB_SHA=$GITHUB_SHA"
-          echo "HEAD=$(git rev-parse HEAD) parents=$(git log -1 --pretty=%P)"
-          git log -1 --oneline
-          echo "--- .github/prompts/code-review.md in workspace ---"
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "parents=$(git log -1 --pretty=%P)"
+          echo "default branch has the file? $(git cat-file -e origin/main:.github/prompts/code-review.md 2>/dev/null && echo yes || echo no)"
+          echo "--- PR-head .github/prompts/code-review.md in workspace ---"
           cat .github/prompts/code-review.md
       - name: Determine prompt to use
         id: determine-prompt
@@ -62,5 +41,9 @@ jobs:
             echo "$PROMPT_CONTENT"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
-          echo "=== VALUE THAT TARGET FEEDS INTO prompt: ==="
-          printf '%s\n' "$PROMPT_CONTENT"
+      - name: Value the workflow passes to claude-code-action prompt input
+        env:
+          INJECTED_PROMPT: ${{ steps.read-prompt.outputs.prompt-content }}
+        run: |
+          echo "=== prompt: input value (what reaches the agent) ==="
+          printf '%s\n' "$INJECTED_PROMPT"
